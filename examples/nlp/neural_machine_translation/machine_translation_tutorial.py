@@ -33,13 +33,13 @@ parser.set_defaults(
     eval_datasets=["valid"],
     work_dir="outputs/transformer_nmt",
     optimizer="novograd",
-    batch_size=4096,
+    batch_size=12288,
     eval_batch_size=4096,
     lr_policy='CosineAnnealing',
-    lr=0.005,
-    weight_decay=0,
-    max_steps=500,
-    iter_per_step=1,
+    lr=0.01,
+    weight_decay=0.00005,
+    num_epochs=5,
+    iter_per_step=5,
     eval_freq=1000,
 )
 parser.add_argument("--data_dir", default="../../../tests/data/en_de", type=str)
@@ -54,7 +54,7 @@ parser.add_argument("--embedding_dropout", default=0.2, type=float)
 parser.add_argument("--ffn_dropout", default=0.2, type=float)
 parser.add_argument("--attn_score_dropout", default=0.2, type=float)
 parser.add_argument("--attn_layer_dropout", default=0.2, type=float)
-parser.add_argument("--warmup_steps", default=1000, type=int)
+parser.add_argument("--warmup_steps", default=4000, type=int)
 parser.add_argument("--max_seq_length", default=256, type=int)
 parser.add_argument("--label_smoothing", default=0.1, type=float)
 parser.add_argument("--beam_size", default=4, type=int)
@@ -244,8 +244,15 @@ ckpt_callback = nemo.core.CheckpointCallback(
     folder=ckpt_dir, epoch_freq=args.save_epoch_freq, step_freq=args.save_step_freq, checkpoints_to_keep=1
 )
 
+wandb_callback = nemo.core.WandbCallback(
+    train_tensors=[train_loss],
+    eval_tensors=eval_tensors,
+    user_iter_callback=lambda x, y: eval_iter_callback(x, y, tgt_tokenizer),
+    user_epochs_done_callback=lambda x: eval_epochs_done_callback(x, validation_dataset=eval_dataset_tgt),
+)
+
 # define learning rate decay policy
-lr_policy_fn = get_lr_policy(args.lr_policy, total_steps=args.max_steps, warmup_steps=args.warmup_steps)
+lr_policy_fn = get_lr_policy(args.lr_policy, total_steps=args.num_epochs * 26166, warmup_steps=args.warmup_steps)
 
 if args.max_steps is not None and args.num_epochs is not None:
     raise ValueError("Please specify either max_steps or num_epochs.")
@@ -259,7 +266,7 @@ if not args.interactive:
 
     nf.train(
         tensors_to_optimize=[train_loss],
-        callbacks=[train_callback, eval_callback, ckpt_callback],
+        callbacks=[wandb_callback],
         optimizer=args.optimizer,
         lr_policy=lr_policy_fn,
         optimization_params={**stop_training_condition, "lr": args.lr, "weight_decay": args.weight_decay},
